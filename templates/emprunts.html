@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Emprunts en cours{% endblock %}
+{% block content %}
+{% if emprunts|length == 0 %}
+  <p>Aucun emprunt en cours.</p>
+{% endif %}
+{% for e in emprunts %}
+<div class="card">
+  <div>
+    <h3>{{ e.titre }}</h3>
+    <p>{{ e.auteur }} — emprunte par <strong>{{ e.emprunteur }}</strong></p>
+    <span class="tag">A rendre avant le {{ e.date_retour_prevue[:10] }}</span>
+  </div>
+  <form method="post" action="{{ url_for('retourner', emprunt_id=e.id) }}">
+    <button class="btn danger" type="submit">Marquer comme rendu</button>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Catalogue - Catalogue+ Local{% endblock %}
+{% block content %}
+<form class="search" method="get">
+  <input type="text" name="q" placeholder="Rechercher un titre ou un auteur..." value="{{ q }}">
+  <button class="btn" type="submit">Rechercher</button>
+</form>
+
+{% if livres|length == 0 %}
+  <p>Aucun livre trouve.</p>
+{% endif %}
+
+{% for livre in livres %}
+<div class="card">
+  <div>
+    <h3>{{ livre.titre }}</h3>
+    <p>{{ livre.auteur }}</p>
+    {% if livre.categorie %}<span class="tag">{{ livre.categorie }}</span>{% endif %}
+  </div>
+  {% if livre.disponible %}
+    <a class="btn" href="{{ url_for('emprunter', livre_id=livre.id) }}">Emprunter</a>
+  {% else %}
+    <span class="btn disabled">Indisponible</span>
+  {% endif %}
+</div>
+{% endfor %}
+{% endblock %}

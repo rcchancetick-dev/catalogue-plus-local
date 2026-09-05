@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Emprunter - {{ livre.titre }}{% endblock %}
+{% block content %}
+<div class="card" style="flex-direction: column; align-items: flex-start;">
+  <h3>{{ livre.titre }}</h3>
+  <p>{{ livre.auteur }}</p>
+</div>
+
+<form method="post">
+  <label for="emprunteur">Votre nom complet</label>
+  <input type="text" id="emprunteur" name="emprunteur" placeholder="Ex: Jean Rakoto" required>
+  <button class="btn" type="submit">Confirmer l'emprunt (14 jours)</button>
+  <a class="btn secondary" href="{{ url_for('index') }}">Annuler</a>
+</form>
+{% endblock %}
