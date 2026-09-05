@@ -106,10 +106,16 @@ function initSchema() {
 initSchema();
 
 function translateSqlForSqlite(text) {
-  return text
-    .replace(/NOW\(\)/gi, "datetime('now')")
-    .replace(/::int/gi, '')
-    .replace(/\bRETURNING \*/gi, '');
+  text = text.replace(/NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*months?'/gi, "datetime('now', '-$1 months')");
+  text = text.replace(/NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*days?'/gi, "datetime('now', '-$1 days')");
+  text = text.replace(/NOW\(\)\s*-\s*INTERVAL\s*'(\d+)\s*years?'/gi, "datetime('now', '-$1 years')");
+  text = text.replace(/NOW\(\)/gi, "datetime('now')");
+  text = text.replace(/CURRENT_DATE/gi, "date('now')");
+  text = text.replace(/TO_CHAR\(([\w.]+),\s*'YYYY-MM'\)/gi, "strftime('%Y-%m', $1)");
+  text = text.replace(/TO_CHAR\(([\w.]+),\s*'YYYY-MM-DD'\)/gi, "strftime('%Y-%m-%d', $1)");
+  text = text.replace(/::int/gi, '');
+  text = text.replace(/\bRETURNING \*/gi, '');
+  return text;
 }
 
 function buildQuery(strings, values) {
@@ -136,30 +142,38 @@ async function sql(strings, ...values) {
   const trimmed = text.trim().toUpperCase();
   const wantsReturning = /RETURNING \*/i.test(rawText);
 
-  if (trimmed.startsWith('SELECT')) {
+  try {
+    if (trimmed.startsWith('SELECT')) {
+      const stmt = db.prepare(text);
+      return stmt.all(...params);
+    }
+
+    if (trimmed.startsWith('INSERT')) {
+      const stmt = db.prepare(text);
+      const info = stmt.run(...params);
+      if (wantsReturning) {
+        const match = rawText.match(/INSERT INTO (\w+)/i);
+        const table = match ? match[1] : null;
+        if (table) return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).all(info.lastInsertRowid);
+      }
+      return [];
+    }
+
+    if (trimmed.startsWith('UPDATE') || trimmed.startsWith('DELETE')) {
+      const stmt = db.prepare(text);
+      stmt.run(...params);
+      return [];
+    }
+
     const stmt = db.prepare(text);
     return stmt.all(...params);
+  } catch (e) {
+    console.error('[db.js local] Erreur SQL sur la requete traduite:');
+    console.error('  Original :', rawText);
+    console.error('  Traduite :', text);
+    console.error('  Erreur   :', e.message);
+    throw e;
   }
-
-  if (trimmed.startsWith('INSERT')) {
-    const stmt = db.prepare(text);
-    const info = stmt.run(...params);
-    if (wantsReturning) {
-      const match = rawText.match(/INSERT INTO (\w+)/i);
-      const table = match ? match[1] : null;
-      if (table) return db.prepare(`SELECT * FROM ${table} WHERE id = ?`).all(info.lastInsertRowid);
-    }
-    return [];
-  }
-
-  if (trimmed.startsWith('UPDATE') || trimmed.startsWith('DELETE')) {
-    const stmt = db.prepare(text);
-    stmt.run(...params);
-    return [];
-  }
-
-  const stmt = db.prepare(text);
-  return stmt.all(...params);
 }
 
 module.exports = sql;
