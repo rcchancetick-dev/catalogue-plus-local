@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Emprunts en cours{% endblock %}
 {% block content %}
+
+<div class="section-header">
+  <h2>Emprunts en cours</h2>
+  <a class="btn secondary" href="{{ url_for('export_emprunts_csv') }}">Exporter en CSV</a>
+</div>
+
 {% if emprunts|length == 0 %}
   <p>Aucun emprunt en cours.</p>
 {% endif %}
@@ -13,6 +19,25 @@
   </div>
   <form method="post" action="{{ url_for('retourner', emprunt_id=e.id) }}">
     <button class="btn danger" type="submit">Marquer comme rendu</button>
+  </form>
+</div>
+{% endfor %}
+
+<div class="section-header" style="margin-top: 32px;">
+  <h2>Liste d'attente</h2>
+</div>
+
+{% if attente|length == 0 %}
+  <p>Personne n'est en liste d'attente.</p>
+{% endif %}
+{% for a in attente %}
+<div class="card">
+  <div>
+    <h3>{{ a.titre }}</h3>
+    <p>Demande par <strong>{{ a.demandeur }}</strong> le {{ a.date_demande[:10] }}</p>
+  </div>
+  <form method="post" action="{{ url_for('retirer_liste_attente', attente_id=a.id) }}">
+    <button class="btn secondary" type="submit">Retirer</button>
   </form>
 </div>
 {% endfor %}
