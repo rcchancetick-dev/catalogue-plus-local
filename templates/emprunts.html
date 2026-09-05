@@ -4,7 +4,10 @@
 
 <div class="section-header">
   <h2>Emprunts en cours</h2>
-  <a class="btn secondary" href="{{ url_for('export_emprunts_csv') }}">Exporter en CSV</a>
+  <div class="inline-form">
+    <a class="btn secondary" href="{{ url_for('admin_demandes') }}">Espace admin</a>
+    <a class="btn secondary" href="{{ url_for('export_emprunts_csv') }}">Exporter en CSV</a>
+  </div>
 </div>
 
 {% if emprunts|length == 0 %}

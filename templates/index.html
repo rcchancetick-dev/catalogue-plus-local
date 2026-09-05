@@ -18,7 +18,9 @@
     {% if livre.categorie %}<span class="tag">{{ livre.categorie }}</span>{% endif %}
     {% if livre.nb_attente > 0 %}<span class="tag tag-attente">{{ livre.nb_attente }} en attente</span>{% endif %}
   </div>
-  {% if livre.disponible %}
+  {% if livre.disponible and livre.demande_en_attente %}
+    <span class="btn disabled">Demande en cours de validation</span>
+  {% elif livre.disponible %}
     <a class="btn" href="{{ url_for('emprunter', livre_id=livre.id) }}">Emprunter</a>
   {% else %}
     <form method="post" action="{{ url_for('rejoindre_liste_attente', livre_id=livre.id) }}" class="inline-form">

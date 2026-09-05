@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Connexion administrateur{% endblock %}
+{% block content %}
+<div class="card" style="flex-direction: column; align-items: stretch;">
+  <h3>Connexion administrateur</h3>
+  <form method="post">
+    <label for="mot_de_passe">Mot de passe</label>
+    <input type="password" id="mot_de_passe" name="mot_de_passe" required>
+    <button class="btn" type="submit">Se connecter</button>
+  </form>
+</div>
+{% endblock %}

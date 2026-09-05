@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Demandes d'emprunt a valider{% endblock %}
+{% block content %}
+<div class="section-header">
+  <h2>Demandes en attente de validation</h2>
+  <a class="btn secondary" href="{{ url_for('admin_logout') }}">Se deconnecter</a>
+</div>
+
+{% if demandes|length == 0 %}
+  <p>Aucune demande en attente.</p>
+{% endif %}
+
+{% for d in demandes %}
+<div class="card">
+  <div>
+    <h3>{{ d.titre }}</h3>
+    <p>{{ d.auteur }} — demande par <strong>{{ d.emprunteur }}</strong></p>
+    <span class="tag">Demande le {{ d.date_demande[:16].replace("T", " a ") }}</span>
+  </div>
+  <div class="inline-form">
+    <form method="post" action="{{ url_for('approuver_demande', emprunt_id=d.id) }}">
+      <button class="btn" type="submit">Approuver</button>
+    </form>
+    <form method="post" action="{{ url_for('refuser_demande', emprunt_id=d.id) }}">
+      <button class="btn danger" type="submit">Refuser</button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

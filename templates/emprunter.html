@@ -6,10 +6,15 @@
   <p>{{ livre.auteur }}</p>
 </div>
 
+<p style="color:#555; font-size: 14px; margin-bottom: 16px;">
+  Votre demande sera envoyee a un responsable de la bibliotheque pour validation.
+  L'emprunt ne sera confirme qu'apres son approbation.
+</p>
+
 <form method="post">
   <label for="emprunteur">Votre nom complet</label>
   <input type="text" id="emprunteur" name="emprunteur" placeholder="Ex: Jean Rakoto" required>
-  <button class="btn" type="submit">Confirmer l'emprunt (14 jours)</button>
+  <button class="btn" type="submit">Envoyer la demande d'emprunt</button>
   <a class="btn secondary" href="{{ url_for('index') }}">Annuler</a>
 </form>
 {% endblock %}

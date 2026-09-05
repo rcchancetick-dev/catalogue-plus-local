@@ -3,12 +3,14 @@ import os
 import csv
 import io
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, g, Response
+from functools import wraps
+from flask import Flask, render_template, request, redirect, url_for, flash, g, Response, session
 
 app = Flask(__name__)
 app.secret_key = "change-cette-cle-avant-la-demo"
 DB_PATH = os.path.join(os.path.dirname(__file__), "catalogue.db")
 DUREE_EMPRUNT_JOURS = 14
+ADMIN_MOT_DE_PASSE = "biblio2026"
 
 
 def get_db():
@@ -24,6 +26,16 @@ def close_db(exception=None):
     db = g.pop("db", None)
     if db is not None:
         db.close()
+
+
+def admin_requis(vue):
+    @wraps(vue)
+    def wrapper(*args, **kwargs):
+        if not session.get("est_admin"):
+            flash("Connexion administrateur requise.", "error")
+            return redirect(url_for("admin_login", next=request.path))
+        return vue(*args, **kwargs)
+    return wrapper
 
 
 def init_db():
@@ -42,8 +54,10 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             livre_id INTEGER NOT NULL,
             emprunteur TEXT NOT NULL,
-            date_emprunt TEXT NOT NULL,
-            date_retour_prevue TEXT NOT NULL,
+            statut TEXT NOT NULL DEFAULT 'en_attente',
+            date_demande TEXT NOT NULL,
+            date_emprunt TEXT,
+            date_retour_prevue TEXT,
             date_retour_effective TEXT,
             FOREIGN KEY (livre_id) REFERENCES livres(id)
         );
@@ -86,14 +100,21 @@ def index():
     else:
         livres = db.execute("SELECT * FROM livres ORDER BY titre").fetchall()
 
-    livres_avec_attente = []
+    livres_avec_infos = []
     for livre in livres:
         nb_attente = db.execute(
             "SELECT COUNT(*) FROM liste_attente WHERE livre_id = ?", (livre["id"],)
         ).fetchone()[0]
-        livres_avec_attente.append({**dict(livre), "nb_attente": nb_attente})
+        demande_en_attente = db.execute(
+            "SELECT id FROM emprunts WHERE livre_id = ? AND statut = 'en_attente'", (livre["id"],)
+        ).fetchone()
+        livres_avec_infos.append({
+            **dict(livre),
+            "nb_attente": nb_attente,
+            "demande_en_attente": demande_en_attente is not None,
+        })
 
-    return render_template("index.html", livres=livres_avec_attente, q=q)
+    return render_template("index.html", livres=livres_avec_infos, q=q)
 
 
 @app.route("/emprunter/<int:livre_id>", methods=["GET", "POST"])
@@ -113,15 +134,12 @@ def emprunter(livre_id):
             flash("Merci d'indiquer votre nom.", "error")
             return render_template("emprunter.html", livre=livre)
 
-        maintenant = datetime.now()
-        retour_prevu = maintenant + timedelta(days=DUREE_EMPRUNT_JOURS)
         db.execute(
-            "INSERT INTO emprunts (livre_id, emprunteur, date_emprunt, date_retour_prevue) VALUES (?, ?, ?, ?)",
-            (livre_id, emprunteur, maintenant.isoformat(), retour_prevu.isoformat()),
+            "INSERT INTO emprunts (livre_id, emprunteur, statut, date_demande) VALUES (?, ?, 'en_attente', ?)",
+            (livre_id, emprunteur, datetime.now().isoformat()),
         )
-        db.execute("UPDATE livres SET disponible = 0 WHERE id = ?", (livre_id,))
         db.commit()
-        flash(f"Emprunt confirme ! A rendre avant le {retour_prevu.strftime('%d/%m/%Y')}.", "success")
+        flash("Demande envoyee ! Elle sera confirmee des qu'un responsable de la bibliotheque l'aura validee.", "success")
         return redirect(url_for("index"))
 
     return render_template("emprunter.html", livre=livre)
@@ -160,7 +178,84 @@ def rejoindre_liste_attente(livre_id):
     return redirect(url_for("index"))
 
 
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if request.method == "POST":
+        mot_de_passe = request.form.get("mot_de_passe", "")
+        if mot_de_passe == ADMIN_MOT_DE_PASSE:
+            session["est_admin"] = True
+            flash("Connecte en tant qu'administrateur.", "success")
+            return redirect(request.args.get("next") or url_for("admin_demandes"))
+        flash("Mot de passe incorrect.", "error")
+    return render_template("admin_login.html")
+
+
+@app.route("/admin/logout")
+def admin_logout():
+    session.pop("est_admin", None)
+    flash("Deconnecte.", "success")
+    return redirect(url_for("index"))
+
+
+@app.route("/admin/demandes")
+@admin_requis
+def admin_demandes():
+    db = get_db()
+    demandes = db.execute(
+        """
+        SELECT emprunts.id, livres.titre, livres.auteur, emprunts.emprunteur, emprunts.date_demande
+        FROM emprunts
+        JOIN livres ON livres.id = emprunts.livre_id
+        WHERE emprunts.statut = 'en_attente'
+        ORDER BY emprunts.date_demande
+        """
+    ).fetchall()
+    return render_template("admin_demandes.html", demandes=demandes)
+
+
+@app.route("/admin/demandes/<int:emprunt_id>/approuver", methods=["POST"])
+@admin_requis
+def approuver_demande(emprunt_id):
+    db = get_db()
+    emprunt = db.execute("SELECT * FROM emprunts WHERE id = ?", (emprunt_id,)).fetchone()
+    if emprunt is None or emprunt["statut"] != "en_attente":
+        flash("Demande introuvable ou deja traitee.", "error")
+        return redirect(url_for("admin_demandes"))
+
+    livre = db.execute("SELECT * FROM livres WHERE id = ?", (emprunt["livre_id"],)).fetchone()
+    if not livre["disponible"]:
+        flash("Ce livre n'est plus disponible, impossible d'approuver.", "error")
+        return redirect(url_for("admin_demandes"))
+
+    maintenant = datetime.now()
+    retour_prevu = maintenant + timedelta(days=DUREE_EMPRUNT_JOURS)
+    db.execute(
+        "UPDATE emprunts SET statut = 'valide', date_emprunt = ?, date_retour_prevue = ? WHERE id = ?",
+        (maintenant.isoformat(), retour_prevu.isoformat(), emprunt_id),
+    )
+    db.execute("UPDATE livres SET disponible = 0 WHERE id = ?", (emprunt["livre_id"],))
+    db.commit()
+    flash(f"Emprunt approuve pour {emprunt['emprunteur']}.", "success")
+    return redirect(url_for("admin_demandes"))
+
+
+@app.route("/admin/demandes/<int:emprunt_id>/refuser", methods=["POST"])
+@admin_requis
+def refuser_demande(emprunt_id):
+    db = get_db()
+    emprunt = db.execute("SELECT * FROM emprunts WHERE id = ?", (emprunt_id,)).fetchone()
+    if emprunt is None or emprunt["statut"] != "en_attente":
+        flash("Demande introuvable ou deja traitee.", "error")
+        return redirect(url_for("admin_demandes"))
+
+    db.execute("UPDATE emprunts SET statut = 'refuse' WHERE id = ?", (emprunt_id,))
+    db.commit()
+    flash(f"Demande de {emprunt['emprunteur']} refusee.", "success")
+    return redirect(url_for("admin_demandes"))
+
+
 @app.route("/retourner/<int:emprunt_id>", methods=["POST"])
+@admin_requis
 def retourner(emprunt_id):
     db = get_db()
     emprunt = db.execute("SELECT * FROM emprunts WHERE id = ?", (emprunt_id,)).fetchone()
@@ -190,6 +285,7 @@ def retourner(emprunt_id):
 
 
 @app.route("/liste-attente/retirer/<int:attente_id>", methods=["POST"])
+@admin_requis
 def retirer_liste_attente(attente_id):
     db = get_db()
     db.execute("DELETE FROM liste_attente WHERE id = ?", (attente_id,))
@@ -207,7 +303,7 @@ def emprunts():
                emprunts.date_emprunt, emprunts.date_retour_prevue
         FROM emprunts
         JOIN livres ON livres.id = emprunts.livre_id
-        WHERE emprunts.date_retour_effective IS NULL
+        WHERE emprunts.statut = 'valide' AND emprunts.date_retour_effective IS NULL
         ORDER BY emprunts.date_retour_prevue
         """
     ).fetchall()
@@ -225,29 +321,29 @@ def emprunts():
 
 
 @app.route("/export/emprunts.csv")
+@admin_requis
 def export_emprunts_csv():
     db = get_db()
     lignes = db.execute(
         """
-        SELECT livres.titre, livres.auteur, emprunts.emprunteur,
-               emprunts.date_emprunt, emprunts.date_retour_prevue, emprunts.date_retour_effective
+        SELECT livres.titre, livres.auteur, emprunts.emprunteur, emprunts.statut,
+               emprunts.date_demande, emprunts.date_emprunt, emprunts.date_retour_prevue, emprunts.date_retour_effective
         FROM emprunts
         JOIN livres ON livres.id = emprunts.livre_id
-        ORDER BY emprunts.date_emprunt DESC
+        ORDER BY emprunts.date_demande DESC
         """
     ).fetchall()
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Titre", "Auteur", "Emprunteur", "Date emprunt", "Date retour prevue", "Date retour effective", "Statut"])
+    writer.writerow(["Titre", "Auteur", "Emprunteur", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"])
     for l in lignes:
-        statut = "Rendu" if l["date_retour_effective"] else "En cours"
         writer.writerow([
-            l["titre"], l["auteur"], l["emprunteur"],
-            l["date_emprunt"][:16].replace("T", " "),
-            l["date_retour_prevue"][:10],
+            l["titre"], l["auteur"], l["emprunteur"], l["statut"],
+            l["date_demande"][:16].replace("T", " "),
+            l["date_emprunt"][:16].replace("T", " ") if l["date_emprunt"] else "",
+            l["date_retour_prevue"][:10] if l["date_retour_prevue"] else "",
             l["date_retour_effective"][:16].replace("T", " ") if l["date_retour_effective"] else "",
-            statut,
         ])
 
     return Response(
@@ -262,4 +358,5 @@ if __name__ == "__main__":
     print("Serveur local demarre.")
     print("Sur ce PC : http://127.0.0.1:5000")
     print("Depuis un telephone sur le meme wifi : http://<IP-DE-CE-PC>:5000")
+    print("Espace admin : /admin/login (mot de passe par defaut : biblio2026)")
     app.run(host="0.0.0.0", port=5000, debug=True)
