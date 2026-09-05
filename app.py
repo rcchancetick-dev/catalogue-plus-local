@@ -320,11 +320,8 @@ def emprunts():
     return render_template("emprunts.html", emprunts=en_cours, attente=attente)
 
 
-@app.route("/export/emprunts.csv")
-@admin_requis
-def export_emprunts_csv():
-    db = get_db()
-    lignes = db.execute(
+def _recuperer_lignes_export(db):
+    return db.execute(
         """
         SELECT livres.titre, livres.auteur, emprunts.emprunteur, emprunts.statut,
                emprunts.date_demande, emprunts.date_emprunt, emprunts.date_retour_prevue, emprunts.date_retour_effective
@@ -333,6 +330,13 @@ def export_emprunts_csv():
         ORDER BY emprunts.date_demande DESC
         """
     ).fetchall()
+
+
+@app.route("/export/emprunts.csv")
+@admin_requis
+def export_emprunts_csv():
+    db = get_db()
+    lignes = _recuperer_lignes_export(db)
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -350,6 +354,53 @@ def export_emprunts_csv():
         buffer.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=emprunts_catalogue_plus.csv"},
+    )
+
+
+@app.route("/export/emprunts.xlsx")
+@admin_requis
+def export_emprunts_xlsx():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    db = get_db()
+    lignes = _recuperer_lignes_export(db)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Emprunts"
+
+    entetes = ["Titre", "Auteur", "Emprunteur", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"]
+    ws.append(entetes)
+    for col_idx in range(1, len(entetes) + 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="4F46E5", end_color="4F46E5", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center")
+
+    statut_labels = {"en_attente": "En attente", "valide": "Valide", "refuse": "Refuse"}
+    for l in lignes:
+        ws.append([
+            l["titre"], l["auteur"], l["emprunteur"], statut_labels.get(l["statut"], l["statut"]),
+            l["date_demande"][:16].replace("T", " ") if l["date_demande"] else "",
+            l["date_emprunt"][:16].replace("T", " ") if l["date_emprunt"] else "",
+            l["date_retour_prevue"][:10] if l["date_retour_prevue"] else "",
+            l["date_retour_effective"][:16].replace("T", " ") if l["date_retour_effective"] else "",
+        ])
+
+    largeurs = [32, 20, 20, 12, 18, 18, 18, 20]
+    for i, largeur in enumerate(largeurs, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = largeur
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return Response(
+        buffer.getvalue(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=emprunts_catalogue_plus.xlsx"},
     )
 
 
