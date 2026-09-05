@@ -67,6 +67,7 @@ function initSchema() {
       date_retour_effective TEXT,
       motif_refus TEXT,
       valide_par INTEGER,
+      overdue_notified INTEGER DEFAULT 0,
       FOREIGN KEY (user_id) REFERENCES users(id),
       FOREIGN KEY (book_id) REFERENCES books(id)
     );
@@ -102,6 +103,11 @@ function initSchema() {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  const colonnesLoans = db.prepare("PRAGMA table_info(loans)").all().map(c => c.name);
+  if (!colonnesLoans.includes('overdue_notified')) {
+    db.exec('ALTER TABLE loans ADD COLUMN overdue_notified INTEGER DEFAULT 0');
+  }
 }
 initSchema();
 
@@ -115,7 +121,14 @@ function translateSqlForSqlite(text) {
   text = text.replace(/TO_CHAR\(([\w.]+),\s*'YYYY-MM-DD'\)/gi, "strftime('%Y-%m-%d', $1)");
   text = text.replace(/::int/gi, '');
   text = text.replace(/\bRETURNING \*/gi, '');
+  text = text.replace(/RETURNING [\w, ]+$/gi, '');
   return text;
+}
+
+function normalizeParam(v) {
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (v === undefined) return null;
+  return v;
 }
 
 function buildQuery(strings, values) {
@@ -125,7 +138,7 @@ function buildQuery(strings, values) {
     text += chunk;
     if (i < values.length) {
       text += '?';
-      params.push(values[i]);
+      params.push(normalizeParam(values[i]));
     }
   });
   return { text: translateSqlForSqlite(text), params };
@@ -140,7 +153,7 @@ async function sql(strings, ...values) {
 
   const { text, params } = buildQuery(strings, values);
   const trimmed = text.trim().toUpperCase();
-  const wantsReturning = /RETURNING \*/i.test(rawText);
+  const wantsReturning = /RETURNING\b/i.test(rawText);
 
   try {
     if (trimmed.startsWith('SELECT')) {
@@ -171,6 +184,7 @@ async function sql(strings, ...values) {
     console.error('[db.js local] Erreur SQL sur la requete traduite:');
     console.error('  Original :', rawText);
     console.error('  Traduite :', text);
+    console.error('  Parametres:', params);
     console.error('  Erreur   :', e.message);
     throw e;
   }
