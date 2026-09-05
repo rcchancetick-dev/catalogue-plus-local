@@ -19,7 +19,10 @@
   <div>
     <h3>{{ e.titre }}</h3>
     <p>{{ e.auteur }} — emprunte par <strong>{{ e.emprunteur }}</strong></p>
-    <p>{% if e.telephone %}Tel: {{ e.telephone }}{% endif %} {% if e.email %} · {{ e.email }}{% endif %}</p>
+    <p>
+      <a href="tel:{{ e.telephone }}" class="contact-link">{{ e.telephone }}</a>
+      {% if e.email %} · {{ e.email }}{% endif %}
+    </p>
     <span class="tag">A rendre avant le {{ e.date_retour_prevue[:10] }}</span>
   </div>
   <form method="post" action="{{ url_for('retourner', emprunt_id=e.id) }}">

@@ -156,8 +156,8 @@ def emprunter(livre_id):
         if not emprunteur:
             flash("Merci d'indiquer votre nom.", "error")
             return render_template("emprunter.html", livre=livre)
-        if not telephone and not email:
-            flash("Merci d'indiquer au moins un numero de telephone ou un email pour vous contacter en cas de retard.", "error")
+        if not telephone:
+            flash("Le numero de telephone est obligatoire pour vous recontacter en cas de retard.", "error")
             return render_template("emprunter.html", livre=livre)
 
         db.execute(

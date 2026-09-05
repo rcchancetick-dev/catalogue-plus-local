@@ -18,7 +18,10 @@
   <div>
     <h3>{{ d.titre }}</h3>
     <p>{{ d.auteur }} — demande par <strong>{{ d.emprunteur }}</strong></p>
-    <p>{% if d.telephone %}Tel: {{ d.telephone }}{% endif %} {% if d.email %} · {{ d.email }}{% endif %}</p>
+    <p>
+      <a href="tel:{{ d.telephone }}" class="contact-link">{{ d.telephone }}</a>
+      {% if d.email %} · {{ d.email }}{% endif %}
+    </p>
     <span class="tag">Demande le {{ d.date_demande[:16].replace("T", " a ") }}</span>
   </div>
   <div class="inline-form">
