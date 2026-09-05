@@ -8,12 +8,23 @@
 
 <p style="color:#555; font-size: 14px; margin-bottom: 16px;">
   Votre demande sera envoyee a un responsable de la bibliotheque pour validation.
-  L'emprunt ne sera confirme qu'apres son approbation.
+  Vos coordonnees permettent de vous recontacter en cas de retard de retour.
 </p>
 
 <form method="post">
   <label for="emprunteur">Votre nom complet</label>
   <input type="text" id="emprunteur" name="emprunteur" placeholder="Ex: Jean Rakoto" required>
+
+  <label for="telephone">Votre numero de telephone</label>
+  <input type="text" id="telephone" name="telephone" placeholder="Ex: 034 00 000 00">
+
+  <label for="email">Votre email</label>
+  <input type="text" id="email" name="email" placeholder="Ex: jean.rakoto@email.com">
+
+  <p style="color:#888; font-size: 13px; margin-top: -8px; margin-bottom: 16px;">
+    Renseignez au moins un des deux champs ci-dessus.
+  </p>
+
   <button class="btn" type="submit">Envoyer la demande d'emprunt</button>
   <a class="btn secondary" href="{{ url_for('index') }}">Annuler</a>
 </form>

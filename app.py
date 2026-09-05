@@ -38,8 +38,13 @@ def admin_requis(vue):
     return wrapper
 
 
+def _colonnes_existantes(db, table):
+    return {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
 def init_db():
     db = sqlite3.connect(DB_PATH)
+    db.row_factory = sqlite3.Row
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS livres (
@@ -72,6 +77,21 @@ def init_db():
         );
         """
     )
+
+    colonnes_emprunts = _colonnes_existantes(db, "emprunts")
+    migrations = {
+        "statut": "ALTER TABLE emprunts ADD COLUMN statut TEXT NOT NULL DEFAULT 'valide'",
+        "date_demande": "ALTER TABLE emprunts ADD COLUMN date_demande TEXT",
+        "telephone": "ALTER TABLE emprunts ADD COLUMN telephone TEXT",
+        "email": "ALTER TABLE emprunts ADD COLUMN email TEXT",
+    }
+    for colonne, sql in migrations.items():
+        if colonne not in colonnes_emprunts:
+            db.execute(sql)
+    if "date_demande" not in colonnes_emprunts:
+        db.execute("UPDATE emprunts SET date_demande = date_emprunt WHERE date_demande IS NULL")
+    db.commit()
+
     cur = db.execute("SELECT COUNT(*) FROM livres")
     if cur.fetchone()[0] == 0:
         db.executemany(
@@ -130,13 +150,19 @@ def emprunter(livre_id):
 
     if request.method == "POST":
         emprunteur = request.form.get("emprunteur", "").strip()
+        telephone = request.form.get("telephone", "").strip()
+        email = request.form.get("email", "").strip()
+
         if not emprunteur:
             flash("Merci d'indiquer votre nom.", "error")
             return render_template("emprunter.html", livre=livre)
+        if not telephone and not email:
+            flash("Merci d'indiquer au moins un numero de telephone ou un email pour vous contacter en cas de retard.", "error")
+            return render_template("emprunter.html", livre=livre)
 
         db.execute(
-            "INSERT INTO emprunts (livre_id, emprunteur, statut, date_demande) VALUES (?, ?, 'en_attente', ?)",
-            (livre_id, emprunteur, datetime.now().isoformat()),
+            "INSERT INTO emprunts (livre_id, emprunteur, telephone, email, statut, date_demande) VALUES (?, ?, ?, ?, 'en_attente', ?)",
+            (livre_id, emprunteur, telephone, email, datetime.now().isoformat()),
         )
         db.commit()
         flash("Demande envoyee ! Elle sera confirmee des qu'un responsable de la bibliotheque l'aura validee.", "success")
@@ -203,7 +229,8 @@ def admin_demandes():
     db = get_db()
     demandes = db.execute(
         """
-        SELECT emprunts.id, livres.titre, livres.auteur, emprunts.emprunteur, emprunts.date_demande
+        SELECT emprunts.id, livres.titre, livres.auteur, emprunts.emprunteur,
+               emprunts.telephone, emprunts.email, emprunts.date_demande
         FROM emprunts
         JOIN livres ON livres.id = emprunts.livre_id
         WHERE emprunts.statut = 'en_attente'
@@ -254,6 +281,33 @@ def refuser_demande(emprunt_id):
     return redirect(url_for("admin_demandes"))
 
 
+@app.route("/admin/emprunts")
+@admin_requis
+def admin_emprunts():
+    db = get_db()
+    en_cours = db.execute(
+        """
+        SELECT emprunts.id, livres.titre, livres.auteur, emprunts.emprunteur,
+               emprunts.telephone, emprunts.email, emprunts.date_emprunt, emprunts.date_retour_prevue
+        FROM emprunts
+        JOIN livres ON livres.id = emprunts.livre_id
+        WHERE emprunts.statut = 'valide' AND emprunts.date_retour_effective IS NULL
+        ORDER BY emprunts.date_retour_prevue
+        """
+    ).fetchall()
+
+    attente = db.execute(
+        """
+        SELECT liste_attente.id, livres.titre, liste_attente.demandeur, liste_attente.date_demande
+        FROM liste_attente
+        JOIN livres ON livres.id = liste_attente.livre_id
+        ORDER BY livres.titre, liste_attente.date_demande
+        """
+    ).fetchall()
+
+    return render_template("admin_emprunts.html", emprunts=en_cours, attente=attente)
+
+
 @app.route("/retourner/<int:emprunt_id>", methods=["POST"])
 @admin_requis
 def retourner(emprunt_id):
@@ -261,7 +315,7 @@ def retourner(emprunt_id):
     emprunt = db.execute("SELECT * FROM emprunts WHERE id = ?", (emprunt_id,)).fetchone()
     if emprunt is None:
         flash("Emprunt introuvable.", "error")
-        return redirect(url_for("emprunts"))
+        return redirect(url_for("admin_emprunts"))
 
     db.execute(
         "UPDATE emprunts SET date_retour_effective = ? WHERE id = ?",
@@ -281,7 +335,7 @@ def retourner(emprunt_id):
         )
     else:
         flash("Livre rendu, merci !", "success")
-    return redirect(url_for("emprunts"))
+    return redirect(url_for("admin_emprunts"))
 
 
 @app.route("/liste-attente/retirer/<int:attente_id>", methods=["POST"])
@@ -291,39 +345,13 @@ def retirer_liste_attente(attente_id):
     db.execute("DELETE FROM liste_attente WHERE id = ?", (attente_id,))
     db.commit()
     flash("Retire de la liste d'attente.", "success")
-    return redirect(url_for("emprunts"))
-
-
-@app.route("/emprunts")
-def emprunts():
-    db = get_db()
-    en_cours = db.execute(
-        """
-        SELECT emprunts.id, livres.titre, livres.auteur, emprunts.emprunteur,
-               emprunts.date_emprunt, emprunts.date_retour_prevue
-        FROM emprunts
-        JOIN livres ON livres.id = emprunts.livre_id
-        WHERE emprunts.statut = 'valide' AND emprunts.date_retour_effective IS NULL
-        ORDER BY emprunts.date_retour_prevue
-        """
-    ).fetchall()
-
-    attente = db.execute(
-        """
-        SELECT liste_attente.id, livres.titre, liste_attente.demandeur, liste_attente.date_demande
-        FROM liste_attente
-        JOIN livres ON livres.id = liste_attente.livre_id
-        ORDER BY livres.titre, liste_attente.date_demande
-        """
-    ).fetchall()
-
-    return render_template("emprunts.html", emprunts=en_cours, attente=attente)
+    return redirect(url_for("admin_emprunts"))
 
 
 def _recuperer_lignes_export(db):
     return db.execute(
         """
-        SELECT livres.titre, livres.auteur, emprunts.emprunteur, emprunts.statut,
+        SELECT livres.titre, livres.auteur, emprunts.emprunteur, emprunts.telephone, emprunts.email, emprunts.statut,
                emprunts.date_demande, emprunts.date_emprunt, emprunts.date_retour_prevue, emprunts.date_retour_effective
         FROM emprunts
         JOIN livres ON livres.id = emprunts.livre_id
@@ -340,11 +368,11 @@ def export_emprunts_csv():
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Titre", "Auteur", "Emprunteur", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"])
+    writer.writerow(["Titre", "Auteur", "Emprunteur", "Telephone", "Email", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"])
     for l in lignes:
         writer.writerow([
-            l["titre"], l["auteur"], l["emprunteur"], l["statut"],
-            l["date_demande"][:16].replace("T", " "),
+            l["titre"], l["auteur"], l["emprunteur"], l["telephone"] or "", l["email"] or "", l["statut"],
+            l["date_demande"][:16].replace("T", " ") if l["date_demande"] else "",
             l["date_emprunt"][:16].replace("T", " ") if l["date_emprunt"] else "",
             l["date_retour_prevue"][:10] if l["date_retour_prevue"] else "",
             l["date_retour_effective"][:16].replace("T", " ") if l["date_retour_effective"] else "",
@@ -371,7 +399,7 @@ def export_emprunts_xlsx():
     ws = wb.active
     ws.title = "Emprunts"
 
-    entetes = ["Titre", "Auteur", "Emprunteur", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"]
+    entetes = ["Titre", "Auteur", "Emprunteur", "Telephone", "Email", "Statut", "Date demande", "Date emprunt", "Date retour prevue", "Date retour effective"]
     ws.append(entetes)
     for col_idx in range(1, len(entetes) + 1):
         cell = ws.cell(row=1, column=col_idx)
@@ -382,14 +410,15 @@ def export_emprunts_xlsx():
     statut_labels = {"en_attente": "En attente", "valide": "Valide", "refuse": "Refuse"}
     for l in lignes:
         ws.append([
-            l["titre"], l["auteur"], l["emprunteur"], statut_labels.get(l["statut"], l["statut"]),
+            l["titre"], l["auteur"], l["emprunteur"], l["telephone"] or "", l["email"] or "",
+            statut_labels.get(l["statut"], l["statut"]),
             l["date_demande"][:16].replace("T", " ") if l["date_demande"] else "",
             l["date_emprunt"][:16].replace("T", " ") if l["date_emprunt"] else "",
             l["date_retour_prevue"][:10] if l["date_retour_prevue"] else "",
             l["date_retour_effective"][:16].replace("T", " ") if l["date_retour_effective"] else "",
         ])
 
-    largeurs = [32, 20, 20, 12, 18, 18, 18, 20]
+    largeurs = [32, 20, 20, 16, 24, 12, 18, 18, 18, 20]
     for i, largeur in enumerate(largeurs, start=1):
         ws.column_dimensions[get_column_letter(i)].width = largeur
 

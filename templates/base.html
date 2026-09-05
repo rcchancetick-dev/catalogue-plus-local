@@ -113,7 +113,7 @@
     font-size: 15px;
   }
   label { font-weight: 600; display: block; margin-bottom: 6px; }
-  input[type=text] {
+  input[type=text], input[type=password] {
     width: 100%;
     padding: 10px 14px;
     border-radius: 8px;
@@ -156,7 +156,6 @@
   <div><a href="{{ url_for('index') }}">Catalogue+ Local</a> <span class="badge">Mode hors ligne</span></div>
   <nav>
     <a href="{{ url_for('index') }}">Catalogue</a>
-    <a href="{{ url_for('emprunts') }}">Emprunts en cours</a>
   </nav>
 </header>
 <main>
